@@ -213,7 +213,12 @@ def make_24h_forecast(building_id: str) -> list[dict]:
         if shortage_model is not None:
             pressure = np.clip((d_lags[0] - s_lags[0]) / grid_cap, 0, 2)
             X_s = np.hstack([X, [[pressure]]])
-            shortage_prob = float(shortage_model.predict_proba(X_s)[0, 1])
+            proba = shortage_model.predict_proba(X_s)
+            # DummyClassifier for single-class buildings has only 1 column
+            if proba.shape[1] >= 2:
+                shortage_prob = float(proba[0, 1])
+            else:
+                shortage_prob = 0.0
         else:
             # Heuristic: risk proportional to grid pressure
             shortage_prob = max(0.0, min(1.0, (pred_grid_import / grid_cap - 0.75) * 2))
