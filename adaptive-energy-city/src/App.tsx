@@ -307,28 +307,19 @@ export default function App() {
 }
 
 // ─── Wrapper that intercepts building clicks to trigger focus mode ─────────────
+// Strategy: watch selectedBuildingId changes via a stable useEffect.
+// No store monkey-patching — that caused infinite re-render loops.
 function CityCanvasWithFocus({ onBuildingClick }: { onBuildingClick: (id: string) => void }) {
-  const selectBuilding = useSimStore(s => s.selectBuilding);
+  const selectedBuildingId = useSimStore(s => s.selectedBuildingId);
+  const prevId = React.useRef<string | null>(null);
 
-  // Override selectBuilding in the store temporarily via a wrapper
-  // We inject a custom click handler via a context or prop drilling.
-  // Since CityCanvas reads selectBuilding directly from the store, we
-  // monkey-patch the selectBuilding call via a render wrapper approach.
-  // The cleanest solution: CityCanvas calls selectBuilding(id) and we
-  // listen to selectedBuildingId changes here, triggering focusMode.
-  useEffect(() => {
-    // Patch: override selectBuilding in the store to also call onBuildingClick
-    const orig = useSimStore.getState().selectBuilding;
-    useSimStore.setState({
-      selectBuilding: (id) => {
-        orig(id);
-        if (id) onBuildingClick(id);
-      },
-    });
-    return () => {
-      useSimStore.setState({ selectBuilding: orig });
-    };
-  }, [onBuildingClick]);
+  // Whenever a building becomes newly selected in the store, notify parent
+  React.useEffect(() => {
+    if (selectedBuildingId && selectedBuildingId !== prevId.current) {
+      onBuildingClick(selectedBuildingId);
+    }
+    prevId.current = selectedBuildingId;
+  }, [selectedBuildingId, onBuildingClick]);
 
   return (
     <Suspense fallback={
@@ -341,3 +332,4 @@ function CityCanvasWithFocus({ onBuildingClick }: { onBuildingClick: (id: string
     </Suspense>
   );
 }
+
