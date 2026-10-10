@@ -507,6 +507,308 @@ def get_notifications():
     return {"notifications": generate_notifications(all_fc), "data_source": "SYNTHETIC"}
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# RESIDENT DASHBOARD — SSE REAL-TIME MONITORING
+# ═══════════════════════════════════════════════════════════════════════════════
+import asyncio
+import threading
+import time
+from typing import AsyncGenerator
+
+from fastapi import Query
+from fastapi.responses import StreamingResponse
+
+# ── In-memory resident sessions ────────────────────────────────────────────────
+# Maps resident_id -> building_id.  Persisted only in RAM (no DB needed).
+# In production, replace with signed JWT + DB lookup.
+_resident_sessions: dict[str, str] = {}
+
+# ── Monitoring state per building ──────────────────────────────────────────────
+# Holds latest snapshot and versioned schedules to avoid re-sending duplicates.
+_monitor_state: dict[str, dict] = {}
+_schedule_version: dict[str, int] = {}
+_alert_dedup: set[str] = set()   # keys already sent, never re-send same event
+
+# ── SSE subscriber queues: building_id -> list[asyncio.Queue] ──────────────────
+_sse_queues: dict[str, list[asyncio.Queue]] = {}
+_sse_lock = threading.Lock()
+
+
+def _register_queue(building_id: str, q: asyncio.Queue):
+    with _sse_lock:
+        _sse_queues.setdefault(building_id, []).append(q)
+
+
+def _unregister_queue(building_id: str, q: asyncio.Queue):
+    with _sse_lock:
+        qs = _sse_queues.get(building_id, [])
+        if q in qs:
+            qs.remove(q)
+
+
+async def _broadcast(building_id: str, event_type: str, data: dict):
+    """Send an SSE event to all subscribers of a building."""
+    payload = json.dumps({"type": event_type, "data": data, "ts": datetime.now().isoformat()})
+    with _sse_lock:
+        queues = list(_sse_queues.get(building_id, []))
+    for q in queues:
+        try:
+            q.put_nowait(payload)
+        except asyncio.QueueFull:
+            pass   # slow client — skip this update
+
+
+# ── Shortage-alert generator ───────────────────────────────────────────────────
+def _evaluate_alerts(building_id: str, forecast: list[dict]) -> list[dict]:
+    """
+    Scan the 24-h forecast and generate alerts for upcoming high-risk / high-price
+    windows.  Deduplicates via _alert_dedup so the same event is not re-sent.
+    """
+    new_alerts = []
+    for fc in forecast:
+        for window_h, label in [(24, "24h"), (12, "12h"), (6, "6h")]:
+            if fc["h_offset"] <= window_h and fc["risk_category"] in ("Medium", "High"):
+                key = f"{building_id}_{fc['timestamp']}_{label}_{fc['risk_category']}"
+                if key in _alert_dedup:
+                    continue
+                _alert_dedup.add(key)
+                deficit = max(0.0, fc["pred_grid_import_kw"] - fc["grid_capacity_kw"])
+                new_alerts.append({
+                    "alert_id":       key,
+                    "building_id":    building_id,
+                    "building_name":  BUILDINGS_META[building_id]["name"],
+                    "predicted_time": fc["timestamp"],
+                    "window_label":   label,
+                    "risk_level":     fc["risk_category"],
+                    "pred_demand_kw": fc["pred_demand_kw"],
+                    "capacity_kw":    fc["grid_capacity_kw"],
+                    "deficit_kw":     round(deficit, 2),
+                    "shortage_prob":  fc["shortage_prob"],
+                    "tariff":         fc["pred_tariff"],
+                    "action":         fc.get("action") or "Review appliance schedule.",
+                    "data_source":    "SYNTHETIC",
+                })
+    return new_alerts
+
+
+# ── Adaptive rescheduling trigger ──────────────────────────────────────────────
+_RESCHEDULE_THRESHOLD_CHANGE = 0.15   # retrigger if risk changes by >15 pp
+
+def _should_reschedule(building_id: str, forecast: list[dict]) -> bool:
+    """Return True if conditions changed enough to warrant a new schedule."""
+    prev = _monitor_state.get(building_id, {})
+    if not prev:
+        return True
+    prev_max_risk = prev.get("max_shortage_prob", 0.0)
+    curr_max_risk = max(f["shortage_prob"] for f in forecast)
+    if abs(curr_max_risk - prev_max_risk) > _RESCHEDULE_THRESHOLD_CHANGE:
+        return True
+    prev_solar = prev.get("total_solar_kw", 0.0)
+    curr_solar = sum(f["pred_solar_kw"] for f in forecast[:6]) / 6
+    if prev_solar > 0 and abs(curr_solar - prev_solar) / prev_solar > 0.20:
+        return True
+    return False
+
+
+# ── Per-building monitoring loop ───────────────────────────────────────────────
+async def _monitor_building(building_id: str):
+    """
+    Coroutine that polls the forecast every 60 s, evaluates alerts and scheduling,
+    and broadcasts SSE events to subscribed resident dashboards.
+    """
+    poll_interval = 60   # seconds between polls
+    while True:
+        try:
+            # 1. Fresh 24-h forecast
+            forecast = make_24h_forecast(building_id)
+            max_risk = max(f["shortage_prob"] for f in forecast)
+            total_solar = sum(f["pred_solar_kw"] for f in forecast[:6]) / 6
+
+            # 2. Snapshot update event
+            snapshot = {
+                "building_id":       building_id,
+                "building_name":     BUILDINGS_META[building_id]["name"],
+                "current_demand_kw": forecast[0]["pred_demand_kw"],
+                "current_solar_kw":  forecast[0]["pred_solar_kw"],
+                "current_import_kw": forecast[0]["pred_grid_import_kw"],
+                "current_tariff":    forecast[0]["pred_tariff"],
+                "grid_capacity_kw":  forecast[0]["grid_capacity_kw"],
+                "risk_category":     forecast[0]["risk_category"],
+                "shortage_prob":     forecast[0]["shortage_prob"],
+                "next_24h_peak_kw":  max(f["pred_demand_kw"] for f in forecast),
+                "max_risk_24h":      round(max_risk, 4),
+                "last_updated":      datetime.now().isoformat(),
+                "mode":              "SIMULATED",
+                "data_source":       "SYNTHETIC",
+            }
+            await _broadcast(building_id, "snapshot", snapshot)
+
+            # 3. Alert evaluation
+            alerts = _evaluate_alerts(building_id, forecast)
+            for alert in alerts:
+                await _broadcast(building_id, "alert", alert)
+
+            # 4. Adaptive rescheduling
+            if _should_reschedule(building_id, forecast):
+                schedule = forecast_schedule(building_id, forecast)
+                ver = _schedule_version.get(building_id, 0) + 1
+                _schedule_version[building_id] = ver
+                schedule["version"] = ver
+                schedule["trigger"] = "auto" if _monitor_state.get(building_id) else "initial"
+                await _broadcast(building_id, "schedule", schedule)
+
+            # 5. Save state for next iteration
+            _monitor_state[building_id] = {
+                "max_shortage_prob": max_risk,
+                "total_solar_kw":    total_solar,
+            }
+
+        except Exception as exc:
+            await _broadcast(building_id, "error", {
+                "building_id": building_id,
+                "message":     str(exc),
+                "data_source": "SYNTHETIC",
+            })
+
+        await asyncio.sleep(poll_interval)
+
+
+# ── Start monitoring loops on startup ─────────────────────────────────────────
+@app.on_event("startup")
+async def start_monitoring():
+    for bld_id in BUILDINGS_META:
+        asyncio.create_task(_monitor_building(bld_id))
+
+
+# ── Resident session endpoints ─────────────────────────────────────────────────
+
+class ResidentOnboard(BaseModel):
+    resident_id: str
+    building_id: str
+
+
+@app.post("/api/resident/onboard")
+def resident_onboard(body: ResidentOnboard):
+    """
+    Assign a resident to a building.
+    In production this would be authenticated; here it's in-memory only.
+    """
+    if body.building_id not in BUILDINGS_META:
+        raise HTTPException(status_code=404, detail=f"Building '{body.building_id}' not found.")
+    _resident_sessions[body.resident_id] = body.building_id
+    meta = BUILDINGS_META[body.building_id]
+    return {
+        "resident_id":  body.resident_id,
+        "building_id":  body.building_id,
+        "building_name": meta["name"],
+        "building_type": meta["type"],
+        "grid_cap_kw":   meta["grid_cap_kw"],
+        "solar_kw":      meta["solar_kw"],
+        "message":       "Onboarded successfully.",
+    }
+
+
+@app.get("/api/resident/{resident_id}/building")
+def resident_building(resident_id: str):
+    bld_id = _resident_sessions.get(resident_id)
+    if not bld_id:
+        raise HTTPException(status_code=404, detail="Resident not found. Call /api/resident/onboard first.")
+    return {"resident_id": resident_id, "building_id": bld_id, **BUILDINGS_META[bld_id]}
+
+
+@app.get("/api/resident/{resident_id}/forecast")
+def resident_forecast(resident_id: str):
+    """Return the 24-h forecast for this resident's building ONLY."""
+    bld_id = _resident_sessions.get(resident_id)
+    if not bld_id:
+        raise HTTPException(status_code=404, detail="Resident not onboarded.")
+    return {
+        "resident_id": resident_id,
+        "building_id": bld_id,
+        "forecast":    make_24h_forecast(bld_id),
+        "data_source": "SYNTHETIC",
+    }
+
+
+@app.get("/api/resident/{resident_id}/schedule")
+def resident_schedule(resident_id: str):
+    """Return forecast-aware schedule for this resident's building ONLY."""
+    bld_id = _resident_sessions.get(resident_id)
+    if not bld_id:
+        raise HTTPException(status_code=404, detail="Resident not onboarded.")
+    fc = make_24h_forecast(bld_id)
+    return forecast_schedule(bld_id, fc)
+
+
+@app.get("/api/resident/{resident_id}/alerts")
+def resident_alerts(resident_id: str):
+    """Return pending shortage alerts for this resident's building ONLY."""
+    bld_id = _resident_sessions.get(resident_id)
+    if not bld_id:
+        raise HTTPException(status_code=404, detail="Resident not onboarded.")
+    fc = make_24h_forecast(bld_id)
+    return {
+        "resident_id": resident_id,
+        "building_id": bld_id,
+        "alerts":      _evaluate_alerts(bld_id, fc),
+        "data_source": "SYNTHETIC",
+    }
+
+
+# ── SSE stream endpoint ─────────────────────────────────────────────────────────
+
+@app.get("/api/resident/{resident_id}/stream")
+async def resident_stream(resident_id: str):
+    """
+    Server-Sent Events stream — delivers real-time updates to the resident
+    dashboard for their assigned building only.  Other buildings' data is
+    never included.
+    """
+    bld_id = _resident_sessions.get(resident_id)
+    if not bld_id:
+        raise HTTPException(status_code=404, detail="Resident not onboarded.")
+
+    q: asyncio.Queue = asyncio.Queue(maxsize=50)
+    _register_queue(bld_id, q)
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        # Send a hello event immediately
+        hello = json.dumps({
+            "type": "connected",
+            "data": {
+                "resident_id": resident_id,
+                "building_id": bld_id,
+                "building_name": BUILDINGS_META[bld_id]["name"],
+                "message": "Live monitoring stream connected (SIMULATED).",
+            },
+            "ts": datetime.now().isoformat(),
+        })
+        yield f"data: {hello}\n\n"
+
+        try:
+            while True:
+                try:
+                    payload = await asyncio.wait_for(q.get(), timeout=30.0)
+                    yield f"data: {payload}\n\n"
+                except asyncio.TimeoutError:
+                    # Send keep-alive comment to prevent connection drop
+                    yield ": keepalive\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            _unregister_queue(bld_id, q)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control":  "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    uvicorn.run("api:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("api:app", host="127.0.0.1", port=8000, reload=False)
+
