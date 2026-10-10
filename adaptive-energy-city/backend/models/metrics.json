@@ -1,0 +1,148 @@
+{
+  "dataset": "SYNTHETIC \u2014 metrics measure fit on simulated patterns, not real-world accuracy.",
+  "train_fraction": 0.7,
+  "test_fraction": 0.15,
+  "split_method": "chronological (no shuffle)",
+  "buildings": {
+    "b_hospital": {
+      "demand": {
+        "model_mae_kw": 2.271,
+        "model_rmse_kw": 3.212,
+        "baseline_mae_kw": 4.18,
+        "baseline_rmse_kw": 6.014,
+        "improvement_pct": 45.7
+      },
+      "price_peak": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "roc_auc": 1.0,
+        "note": "Near-perfect scores expected: simulated tariff is deterministic by hour."
+      },
+      "shortage_risk": {
+        "precision": 0.7234,
+        "recall": 0.764,
+        "f1": 0.7432,
+        "roc_auc": 0.9887,
+        "threshold": 0.4,
+        "risk_categories": {
+          "Low": "probability < 0.25",
+          "Medium": "0.25 \u2264 probability < 0.60",
+          "High": "probability \u2265 0.60"
+        }
+      }
+    },
+    "b_factory_a": {
+      "demand": {
+        "model_mae_kw": 2.815,
+        "model_rmse_kw": 4.037,
+        "baseline_mae_kw": 13.844,
+        "baseline_rmse_kw": 24.181,
+        "improvement_pct": 79.7
+      },
+      "price_peak": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "roc_auc": 1.0,
+        "note": "Near-perfect scores expected: simulated tariff is deterministic by hour."
+      },
+      "shortage_risk": {
+        "precision": 0.8629,
+        "recall": 0.877,
+        "f1": 0.8699,
+        "roc_auc": 0.9932,
+        "threshold": 0.4,
+        "risk_categories": {
+          "Low": "probability < 0.25",
+          "Medium": "0.25 \u2264 probability < 0.60",
+          "High": "probability \u2265 0.60"
+        }
+      }
+    },
+    "b_office_tower": {
+      "demand": {
+        "model_mae_kw": 1.064,
+        "model_rmse_kw": 1.622,
+        "baseline_mae_kw": 8.011,
+        "baseline_rmse_kw": 16.077,
+        "improvement_pct": 86.7
+      },
+      "price_peak": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "roc_auc": 1.0,
+        "note": "Near-perfect scores expected: simulated tariff is deterministic by hour."
+      },
+      "shortage_risk": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "roc_auc": 0.5,
+        "threshold": 0.4,
+        "risk_categories": {
+          "Low": "probability < 0.25",
+          "Medium": "0.25 \u2264 probability < 0.60",
+          "High": "probability \u2265 0.60"
+        }
+      }
+    },
+    "b_mall": {
+      "demand": {
+        "model_mae_kw": 1.804,
+        "model_rmse_kw": 2.577,
+        "baseline_mae_kw": 6.258,
+        "baseline_rmse_kw": 10.435,
+        "improvement_pct": 71.2
+      },
+      "price_peak": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "roc_auc": 1.0,
+        "note": "Near-perfect scores expected: simulated tariff is deterministic by hour."
+      },
+      "shortage_risk": {
+        "precision": 0.7857,
+        "recall": 0.8462,
+        "f1": 0.8148,
+        "roc_auc": 0.9988,
+        "threshold": 0.4,
+        "risk_categories": {
+          "Low": "probability < 0.25",
+          "Medium": "0.25 \u2264 probability < 0.60",
+          "High": "probability \u2265 0.60"
+        }
+      }
+    },
+    "b_residential": {
+      "demand": {
+        "model_mae_kw": 0.798,
+        "model_rmse_kw": 1.118,
+        "baseline_mae_kw": 1.742,
+        "baseline_rmse_kw": 2.627,
+        "improvement_pct": 54.2
+      },
+      "price_peak": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "roc_auc": 1.0,
+        "note": "Near-perfect scores expected: simulated tariff is deterministic by hour."
+      },
+      "shortage_risk": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "roc_auc": 0.5,
+        "threshold": 0.4,
+        "risk_categories": {
+          "Low": "probability < 0.25",
+          "Medium": "0.25 \u2264 probability < 0.60",
+          "High": "probability \u2265 0.60"
+        }
+      }
+    }
+  }
+}

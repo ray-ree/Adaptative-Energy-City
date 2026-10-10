@@ -11,17 +11,19 @@ import ShortageAlertsPage   from './components/pages/ShortageAlertsPage';
 import SchedulingPage       from './components/pages/SchedulingPage';
 import ReportsPage          from './components/pages/ReportsPage';
 import SettingsPage         from './components/pages/SettingsPage';
+import ForecastingPage      from './components/pages/ForecastingPage';
 
 const CityCanvas = lazy(() => import('./components/CityCanvas'));
 
 // ─── Nav definition ───────────────────────────────────────────────────────────
 const NAV_ITEMS = [
-  { id: 'overview',    icon: '🏙️', label: 'City Overview'     },
-  { id: 'monitoring',  icon: '📊', label: 'Energy Monitoring'  },
-  { id: 'alerts',      icon: '🔔', label: 'Shortage Alerts'    },
-  { id: 'scheduling',  icon: '📅', label: 'Scheduling'         },
-  { id: 'reports',     icon: '📄', label: 'Reports'            },
-  { id: 'settings',    icon: '⚙️', label: 'Settings'           },
+  { id: 'overview',     icon: '🏙️', label: 'City Overview'     },
+  { id: 'monitoring',   icon: '📊', label: 'Energy Monitoring'  },
+  { id: 'alerts',       icon: '🔔', label: 'Shortage Alerts'    },
+  { id: 'scheduling',   icon: '📅', label: 'Scheduling'         },
+  { id: 'reports',      icon: '📄', label: 'Reports'            },
+  { id: 'forecasting',  icon: '🤖', label: 'ML Forecasting'     },
+  { id: 'settings',     icon: '⚙️', label: 'Settings'           },
 ] as const;
 type NavId = (typeof NAV_ITEMS)[number]['id'];
 
@@ -280,11 +282,12 @@ export default function App() {
           )}
 
           {/* ── OTHER PAGES ── */}
-          {activeNav === 'monitoring' && <EnergyMonitoringPage />}
-          {activeNav === 'alerts'     && <ShortageAlertsPage />}
-          {activeNav === 'scheduling' && <SchedulingPage />}
-          {activeNav === 'reports'    && <ReportsPage />}
-          {activeNav === 'settings'   && <SettingsPage />}
+          {activeNav === 'monitoring'  && <EnergyMonitoringPage />}
+          {activeNav === 'alerts'      && <ShortageAlertsPage />}
+          {activeNav === 'scheduling'  && <SchedulingPage />}
+          {activeNav === 'reports'     && <ReportsPage />}
+          {activeNav === 'forecasting' && <ForecastingPage />}
+          {activeNav === 'settings'    && <SettingsPage />}
         </div>
 
         {/* Right panel – controls + decisions (overview only, not in focus mode) */}
