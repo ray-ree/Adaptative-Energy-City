@@ -101,9 +101,9 @@ function CableLine({ from, to, status }: { from: THREE.Vector3; to: THREE.Vector
 
   return (
     <>
-      <line geometry={geo}>
+      {React.createElement('line', { geometry: geo },
         <lineBasicMaterial color={color} opacity={isAbnormal ? 0.85 : 0.35} transparent />
-      </line>
+      )}
       {isAbnormal && [0, 0.5].map((ph) => (
         <EnergyParticle key={ph} from={from} to={to} color={color} speed={1.2} phase={ph} />
       ))}

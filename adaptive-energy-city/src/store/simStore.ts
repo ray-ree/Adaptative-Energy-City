@@ -37,6 +37,7 @@ function recalc(partial: Partial<SimulationState> & Pick<SimulationState, 'build
   const isShortage = currentSlotData.gridImportKW > gridCapacityKW;
 
   const fullState: SimulationState = {
+    speedMultiplier: 1,
     ...partial,
     slots,
     schedulingResult: null,

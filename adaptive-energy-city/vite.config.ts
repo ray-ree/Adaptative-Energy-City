@@ -4,9 +4,5 @@ import { defineConfig } from 'vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  test: {
-    environment: 'node',
-    globals: true,
-  },
+  base: '/Adaptative-Energy-City/',
 })
-
